@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Environments
+.venv/
+venv/
+.env
+.env.*
+
+# Databricks
+.databricks/
+*.tfstate
+*.tfstate.*
+
+# OS
+.DS_Store

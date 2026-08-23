@@ -1,0 +1,26 @@
+{
+  "name": "uber_rides_ingestion",
+  "catalog": "uber_project",
+  "schema": "bronze",
+  "serverless": true,
+  "channel": "CURRENT",
+  "continuous": false,
+  "development": false,
+  "photon": true,
+  "configuration": {
+    "uber_event_hub_names": "uber-project-topic-0",
+    "uber_event_hub_namespace": "uber-project-eh",
+    "uber_kafka_failOnDataLoss": "true",
+    "uber_kafka_maxOffsetsPerTrigger": "10000",
+    "uber_kafka_requestTimeout": "10000",
+    "uber_kafka_sessionTimeout": "10000",
+    "uber_kafka_startingOffsets": "earliest"
+  },
+  "libraries": [
+    {
+      "glob": {
+        "include": "/Workspace/Users/mandapatimohith2002@gmail.com/Uber_Project/uber_rides_ingestion/transformations/**"
+      }
+    }
+  ]
+}

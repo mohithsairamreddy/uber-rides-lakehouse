@@ -1,0 +1,2292 @@
+{
+  "datasets": [
+    {
+      "name": "rides_detail",
+      "displayName": "Rides detail",
+      "queryLines": [
+        "WITH driver_current AS (\n",
+        "    SELECT driver_id, driver_name, driver_rating\n",
+        "    FROM dim_driver WHERE __END_AT IS NULL\n",
+        "),\n",
+        "passenger_current AS (\n",
+        "    SELECT passenger_id, passenger_name\n",
+        "    FROM dim_passenger WHERE __END_AT IS NULL\n",
+        "),\n",
+        "vehicle_current AS (\n",
+        "    SELECT vehicle_id, vehicle_model, vehicle_color\n",
+        "    FROM dim_vehicle WHERE __END_AT IS NULL\n",
+        "),\n",
+        "driver_revenue AS (\n",
+        "    SELECT driver_id,\n",
+        "           SUM(CASE WHEN is_completed THEN total_fare END) AS driver_total_revenue,\n",
+        "           ROW_NUMBER() OVER (\n",
+        "               ORDER BY SUM(CASE WHEN is_completed THEN total_fare END) DESC NULLS LAST,\n",
+        "                        driver_id\n",
+        "           ) AS driver_revenue_rank\n",
+        "    FROM fact_rides\n",
+        "    WHERE booking_date BETWEEN :start_date AND :end_date\n",
+        "    GROUP BY driver_id\n",
+        ")\n",
+        "SELECT\n",
+        "    f.ride_id, f.driver_id, f.passenger_id, f.vehicle_id,\n",
+        "    d.driver_name, d.driver_rating AS driver_rating_current,\n",
+        "    dr.driver_total_revenue, dr.driver_revenue_rank,\n",
+        "    p.passenger_name, v.vehicle_model, v.vehicle_color,\n",
+        "    f.ride_status_name, f.payment_method_name,\n",
+        "    COALESCE(f.cancellation_reason_name, 'Not cancelled') AS cancellation_reason_name,\n",
+        "    COALESCE(f.vehicle_type, 'Unknown')      AS vehicle_type,\n",
+        "    COALESCE(f.vehicle_make, 'Unknown')      AS vehicle_make,\n",
+        "    COALESCE(f.pickup_city_name, 'Unknown')  AS pickup_city,\n",
+        "    COALESCE(f.dropoff_city_name, 'Unknown') AS dropoff_city,\n",
+        "    f.booking_date, f.booking_hour,\n",
+        "    dt.day_name, dt.day_of_week, dt.is_weekend, dt.year_month, dt.week_start_date,\n",
+        "    CASE\n",
+        "        WHEN f.booking_hour BETWEEN  5 AND  9 THEN '1 Morning peak (5-9)'\n",
+        "        WHEN f.booking_hour BETWEEN 10 AND 15 THEN '2 Midday (10-15)'\n",
+        "        WHEN f.booking_hour BETWEEN 16 AND 19 THEN '3 Evening peak (16-19)'\n",
+        "        WHEN f.booking_hour BETWEEN 20 AND 23 THEN '4 Night (20-23)'\n",
+        "        ELSE '5 Late night (0-4)'\n",
+        "    END AS time_of_day,\n",
+        "    CASE\n",
+        "        WHEN f.distance_miles <  2 THEN '1 Under 2 mi'\n",
+        "        WHEN f.distance_miles <  5 THEN '2 2-5 mi'\n",
+        "        WHEN f.distance_miles < 10 THEN '3 5-10 mi'\n",
+        "        WHEN f.distance_miles < 20 THEN '4 10-20 mi'\n",
+        "        ELSE '5 20+ mi'\n",
+        "    END AS distance_band,\n",
+        "    CASE\n",
+        "        WHEN f.surge_multiplier <= 1.0 THEN '1 No surge'\n",
+        "        WHEN f.surge_multiplier <= 1.5 THEN '2 Low (1.0-1.5x)'\n",
+        "        WHEN f.surge_multiplier <= 2.0 THEN '3 Medium (1.5-2.0x)'\n",
+        "        ELSE '4 High (2.0x+)'\n",
+        "    END AS surge_band,\n",
+        "    f.distance_miles, f.duration_minutes, f.wait_minutes, f.actual_ride_minutes,\n",
+        "    f.base_fare, f.subtotal, f.tip_amount, f.total_fare, f.fare_per_mile,\n",
+        "    f.surge_multiplier, f.rating,\n",
+        "    f.pickup_latitude, f.pickup_longitude,\n",
+        "    f.is_completed, f.is_cancelled,\n",
+        "    f.tip_amount > 0 AS is_tipped,\n",
+        "    CASE WHEN f.is_cancelled  THEN 1.0 ELSE 0.0 END AS is_cancelled_num,\n",
+        "    CASE WHEN f.tip_amount > 0 THEN 1.0 ELSE 0.0 END AS is_tipped_num,\n",
+        "    CASE WHEN f.tip_amount > 0 THEN 100.0 ELSE 0.0 END AS is_tipped_pct,\n",
+        "    CASE WHEN f.is_completed THEN f.total_fare     END AS completed_revenue,\n",
+        "    CASE WHEN f.is_completed THEN f.tip_amount     END AS completed_tips,\n",
+        "    CASE WHEN f.is_completed THEN f.distance_miles END AS completed_miles\n",
+        "FROM fact_rides AS f\n",
+        "LEFT JOIN driver_current    AS d  USING (driver_id)\n",
+        "LEFT JOIN driver_revenue    AS dr USING (driver_id)\n",
+        "LEFT JOIN passenger_current AS p USING (passenger_id)\n",
+        "LEFT JOIN vehicle_current   AS v USING (vehicle_id)\n",
+        "LEFT JOIN dim_date AS dt ON f.booking_date_key = dt.date_key\n",
+        "WHERE f.booking_date BETWEEN :start_date AND :end_date\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "Start date",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-01-27"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "End date",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-27"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "catalog": "uber_project",
+      "schema": "gold"
+    },
+    {
+      "name": "daily_trend",
+      "displayName": "Daily trend",
+      "queryLines": [
+        "WITH daily AS (\n",
+        "    SELECT d.calendar_date AS booking_date, d.day_name, d.is_weekend,\n",
+        "           COUNT(f.ride_id) AS rides,\n",
+        "           COUNT_IF(f.is_completed) AS completed_rides,\n",
+        "           COUNT_IF(f.is_cancelled) AS cancelled_rides,\n",
+        "           COALESCE(SUM(CASE WHEN f.is_completed THEN f.total_fare END), 0) AS revenue,\n",
+        "           AVG(CASE WHEN f.is_completed THEN f.total_fare END) AS avg_fare,\n",
+        "           AVG(f.surge_multiplier) AS avg_surge,\n",
+        "           AVG(f.wait_minutes) AS avg_wait_minutes\n",
+        "    FROM dim_date AS d\n",
+        "    LEFT JOIN fact_rides AS f ON f.booking_date_key = d.date_key\n",
+        "    WHERE d.calendar_date BETWEEN :start_date AND :end_date\n",
+        "    GROUP BY d.calendar_date, d.day_name, d.is_weekend\n",
+        ")\n",
+        "SELECT booking_date, day_name, is_weekend, rides, completed_rides, cancelled_rides,\n",
+        "       ROUND(revenue, 2) AS revenue,\n",
+        "       ROUND(avg_fare, 2) AS avg_fare,\n",
+        "       ROUND(avg_surge, 3) AS avg_surge,\n",
+        "       ROUND(avg_wait_minutes, 1) AS avg_wait_minutes,\n",
+        "       ROUND(100.0 * cancelled_rides / NULLIF(rides, 0), 2) AS cancellation_rate_pct,\n",
+        "       ROUND(AVG(revenue) OVER (ORDER BY booking_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 2) AS revenue_7d_avg,\n",
+        "       ROUND(AVG(rides * 1.0) OVER (ORDER BY booking_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 1) AS rides_7d_avg\n",
+        "FROM daily\n",
+        "ORDER BY booking_date\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "Start date",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-01-27"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "End date",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-27"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "catalog": "uber_project",
+      "schema": "gold"
+    },
+    {
+      "name": "ride_funnel",
+      "displayName": "Ride funnel",
+      "queryLines": [
+        "WITH agg AS (\n",
+        "    SELECT COUNT(*) AS booked,\n",
+        "           COUNT_IF(driver_id IS NOT NULL) AS assigned,\n",
+        "           COUNT_IF(pickup_timestamp IS NOT NULL) AS picked_up,\n",
+        "           COUNT_IF(is_completed) AS completed\n",
+        "    FROM fact_rides\n",
+        "    WHERE booking_date BETWEEN :start_date AND :end_date\n",
+        ")\n",
+        "SELECT stage_order, stage, rides,\n",
+        "       ROUND(100.0 * rides / NULLIF(MAX(rides) OVER (), 0), 1) AS pct_of_booked\n",
+        "FROM agg\n",
+        "LATERAL VIEW stack(4,\n",
+        "    1, 'Booked', booked, 2, 'Driver assigned', assigned,\n",
+        "    3, 'Picked up', picked_up, 4, 'Completed', completed\n",
+        ") t AS stage_order, stage, rides\n",
+        "ORDER BY stage_order\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "Start date",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-01-27"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "End date",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-27"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "catalog": "uber_project",
+      "schema": "gold"
+    },
+    {
+      "name": "pickup_hotspots",
+      "displayName": "Pickup hotspots",
+      "queryLines": [
+        "WITH bounds AS (\n",
+        "    SELECT MIN(pickup_latitude) AS lat_min, MAX(pickup_latitude) AS lat_max,\n",
+        "           MIN(pickup_longitude) AS lon_min, MAX(pickup_longitude) AS lon_max\n",
+        "    FROM fact_rides\n",
+        "    WHERE booking_date BETWEEN :start_date AND :end_date\n",
+        "      AND pickup_latitude IS NOT NULL AND pickup_longitude IS NOT NULL\n",
+        "),\n",
+        "binned AS (\n",
+        "    SELECT WIDTH_BUCKET(f.pickup_longitude, b.lon_min, b.lon_max, 14) AS lon_bin,\n",
+        "           WIDTH_BUCKET(f.pickup_latitude,  b.lat_min, b.lat_max, 10) AS lat_bin,\n",
+        "           f.total_fare, f.surge_multiplier, f.wait_minutes, f.is_completed\n",
+        "    FROM fact_rides AS f CROSS JOIN bounds AS b\n",
+        "    WHERE f.booking_date BETWEEN :start_date AND :end_date\n",
+        "      AND f.pickup_latitude IS NOT NULL AND f.pickup_longitude IS NOT NULL\n",
+        ")\n",
+        "SELECT lon_bin,\n",
+        "       -lat_bin AS lat_bin,\n",
+        "       COUNT(*) AS rides,\n",
+        "       ROUND(SUM(CASE WHEN is_completed THEN total_fare END), 2) AS revenue,\n",
+        "       ROUND(AVG(surge_multiplier), 2) AS avg_surge,\n",
+        "       ROUND(AVG(wait_minutes), 1) AS avg_wait_minutes\n",
+        "FROM binned\n",
+        "WHERE lon_bin IS NOT NULL AND lat_bin IS NOT NULL\n",
+        "GROUP BY lon_bin, lat_bin\n",
+        "HAVING COUNT(*) >= 5\n",
+        "ORDER BY rides DESC\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "Start date",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-01-27"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "End date",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-27"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "catalog": "uber_project",
+      "schema": "gold"
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "txt-title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Uber Rides Analytics"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "txt-subtitle",
+            "multilineTextboxSpec": {
+              "lines": [
+                "End-to-end lakehouse on Azure Databricks.\n",
+                "\n",
+                "**Ingest** — historical rides from GitHub via Azure Data Factory; live bookings from a locally deployed app via Azure Event Hubs\n",
+                "\n",
+                "**Transform** — Spark Declarative Pipelines: Bronze raw → Silver one-big-table → Gold star schema (SCD2 dimensions, SCD1 fact)\n",
+                "\n",
+                "**Govern** — Unity Catalog across all three layers"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "flt-date-range",
+            "queries": [
+              {
+                "name": "q_rides_detail",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "parameters": [
+                    {
+                      "name": "start_date",
+                      "keyword": "start_date"
+                    },
+                    {
+                      "name": "end_date",
+                      "keyword": "end_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_daily_trend",
+                "query": {
+                  "datasetName": "daily_trend",
+                  "parameters": [
+                    {
+                      "name": "start_date",
+                      "keyword": "start_date"
+                    },
+                    {
+                      "name": "end_date",
+                      "keyword": "end_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ride_funnel",
+                "query": {
+                  "datasetName": "ride_funnel",
+                  "parameters": [
+                    {
+                      "name": "start_date",
+                      "keyword": "start_date"
+                    },
+                    {
+                      "name": "end_date",
+                      "keyword": "end_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_pickup_hotspots",
+                "query": {
+                  "datasetName": "pickup_hotspots",
+                  "parameters": [
+                    {
+                      "name": "start_date",
+                      "keyword": "start_date"
+                    },
+                    {
+                      "name": "end_date",
+                      "keyword": "end_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "start_date",
+                    "queryName": "q_rides_detail"
+                  },
+                  {
+                    "parameterName": "end_date",
+                    "queryName": "q_rides_detail"
+                  },
+                  {
+                    "parameterName": "start_date",
+                    "queryName": "q_daily_trend"
+                  },
+                  {
+                    "parameterName": "end_date",
+                    "queryName": "q_daily_trend"
+                  },
+                  {
+                    "parameterName": "start_date",
+                    "queryName": "q_ride_funnel"
+                  },
+                  {
+                    "parameterName": "end_date",
+                    "queryName": "q_ride_funnel"
+                  },
+                  {
+                    "parameterName": "start_date",
+                    "queryName": "q_pickup_hotspots"
+                  },
+                  {
+                    "parameterName": "end_date",
+                    "queryName": "q_pickup_hotspots"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Booking date range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "flt-pickup-city",
+            "queries": [
+              {
+                "name": "q_rides_detail_pickup_city",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "pickup_city",
+                      "expression": "`pickup_city`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "pickup_city",
+                    "displayName": "Pickup city",
+                    "queryName": "q_rides_detail_pickup_city"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Pickup city"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "flt-payment-method",
+            "queries": [
+              {
+                "name": "q_rides_detail_payment_method_name",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "payment_method_name",
+                      "expression": "`payment_method_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "payment_method_name",
+                    "displayName": "Payment method",
+                    "queryName": "q_rides_detail_payment_method_name"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Payment method"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "flt-vehicle-type",
+            "queries": [
+              {
+                "name": "q_rides_detail_vehicle_type",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "vehicle_type",
+                      "expression": "`vehicle_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "vehicle_type",
+                    "displayName": "Vehicle type",
+                    "queryName": "q_rides_detail_vehicle_type"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Vehicle type"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "flt-time-of-day",
+            "queries": [
+              {
+                "name": "q_rides_detail_time_of_day",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "time_of_day",
+                      "expression": "`time_of_day`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "time_of_day",
+                    "displayName": "Time of day",
+                    "queryName": "q_rides_detail_time_of_day"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Time of day"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-total-rides",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "count(ride_id)",
+                      "expression": "COUNT(`ride_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(ride_id)",
+                  "displayName": "Total rides",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total rides",
+                "description": "All bookings in the selected period, including cancellations.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-gross-revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "sum(completed_revenue)",
+                      "expression": "SUM(`completed_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(completed_revenue)",
+                  "displayName": "Gross revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Gross revenue",
+                "description": "Completed rides only. Cancelled rides earn nothing.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 6,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-avg-fare",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "avg(completed_revenue)",
+                      "expression": "AVG(`completed_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(completed_revenue)",
+                  "displayName": "Avg fare",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg fare",
+                "description": "Mean total fare across completed rides, including tip.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 6,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-cancellation-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "avg(is_cancelled_num)",
+                      "expression": "AVG(`is_cancelled_num`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(is_cancelled_num)",
+                  "displayName": "Cancellation rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cancellation rate",
+                "description": "Share of bookings that ended in cancellation, by either party.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 6,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-avg-wait",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "avg(wait_minutes)",
+                      "expression": "AVG(`wait_minutes`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(wait_minutes)",
+                  "displayName": "Avg wait time",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg wait time",
+                "description": "Minutes from booking to pickup.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 6,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "combo-daily-rides-revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "daily_trend",
+                  "fields": [
+                    {
+                      "name": "daily(booking_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `booking_date`)"
+                    },
+                    {
+                      "name": "sum(revenue)",
+                      "expression": "SUM(`revenue`)"
+                    },
+                    {
+                      "name": "avg(rides_7d_avg)",
+                      "expression": "AVG(`rides_7d_avg`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(booking_date)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "fields": [
+                      {
+                        "fieldName": "sum(revenue)",
+                        "displayName": "Revenue",
+                        "format": {
+                          "type": "number-currency",
+                          "currencyCode": "USD",
+                          "abbreviation": "compact",
+                          "decimalPlaces": {
+                            "type": "max",
+                            "places": 2
+                          }
+                        }
+                      }
+                    ],
+                    "axis": {
+                      "hideTitle": true
+                    }
+                  },
+                  "secondary": {
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "fields": [
+                      {
+                        "fieldName": "avg(rides_7d_avg)",
+                        "displayName": "Rides (7-day avg)",
+                        "format": {
+                          "type": "number",
+                          "decimalPlaces": {
+                            "type": "exact",
+                            "places": 1
+                          }
+                        }
+                      }
+                    ],
+                    "axis": {
+                      "hideTitle": true
+                    }
+                  }
+                },
+                "color": {
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Revenue",
+                        "color": "#276EF1"
+                      },
+                      {
+                        "value": "Rides (7-day avg)",
+                        "color": "#FF8A00"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily rides and revenue",
+                "description": "Bars show ride volume; the line is a 7-day rolling average of revenue on the right axis.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "heatmap-when-people-ride",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "booking_hour",
+                      "expression": "`booking_hour`"
+                    },
+                    {
+                      "name": "day_name",
+                      "expression": "`day_name`"
+                    },
+                    {
+                      "name": "count(ride_id)",
+                      "expression": "COUNT(`ride_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "booking_hour",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "day_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Sunday",
+                        "Monday",
+                        "Tuesday",
+                        "Wednesday",
+                        "Thursday",
+                        "Friday",
+                        "Saturday"
+                      ]
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "count(ride_id)",
+                  "displayName": "Rides",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#EEF2F8",
+                        "end": "#276EF1"
+                      }
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "When people ride",
+                "description": "Ride volume by hour of day and day of week. Darker cells are busier.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "funnel-booking-to-completion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ride_funnel",
+                  "fields": [
+                    {
+                      "name": "stage",
+                      "expression": "`stage`"
+                    },
+                    {
+                      "name": "rides",
+                      "expression": "`rides`"
+                    },
+                    {
+                      "name": "stage_order",
+                      "expression": "`stage_order`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "funnel",
+              "encodings": {
+                "x": {
+                  "fieldName": "rides",
+                  "displayName": "Rides",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "stage",
+                  "displayName": "Stage",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Booked",
+                        "Driver assigned",
+                        "Picked up",
+                        "Completed"
+                      ]
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Booking to completion",
+                "description": "Where rides drop out of the funnel.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 15,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "operations",
+      "displayName": "Operations",
+      "layout": [
+        {
+          "widget": {
+            "name": "heatmap-pickup-density",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "pickup_hotspots",
+                  "fields": [
+                    {
+                      "name": "lon_bin",
+                      "expression": "`lon_bin`"
+                    },
+                    {
+                      "name": "lat_bin",
+                      "expression": "`lat_bin`"
+                    },
+                    {
+                      "name": "sum(rides)",
+                      "expression": "SUM(`rides`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "lon_bin",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "lat_bin",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(rides)",
+                  "displayName": "Rides",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#EEF2F8",
+                        "end": "#276EF1"
+                      }
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Pickup density",
+                "showDescription": true,
+                "description": "Pickup locations binned onto a 14 x 10 spatial grid. Darker cells are busier. North is at the top."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 7,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "pie-ride-outcomes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "count(ride_id)",
+                      "expression": "COUNT(`ride_id`)"
+                    },
+                    {
+                      "name": "ride_status_name",
+                      "expression": "`ride_status_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(ride_id)",
+                  "displayName": "Rides",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "ride_status_name",
+                  "displayName": "Outcome",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Completed",
+                        "color": "#276EF1"
+                      },
+                      {
+                        "value": "Cancelled",
+                        "color": "#A8B2C1"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "innerRadius": 0.55
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Ride outcomes",
+                "description": "Share of all bookings by final status.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 0,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar-revenue-by-pickup-city",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "pickup_city",
+                      "expression": "`pickup_city`"
+                    },
+                    {
+                      "name": "sum(completed_revenue)",
+                      "expression": "SUM(`completed_revenue`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "SUM(`completed_revenue`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(completed_revenue)",
+                  "displayName": "Revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "pickup_city",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "San Antonio",
+                        "Los Angelas",
+                        "Houston",
+                        "San Diego",
+                        "Dallas",
+                        "New York",
+                        "Phoenix",
+                        "San Jose",
+                        "Chicago",
+                        "Philadelphia"
+                      ]
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(completed_revenue)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#EEF2F8",
+                        "end": "#276EF1"
+                      }
+                    }
+                  },
+                  "legend": {
+                    "hide": true
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue by pickup city",
+                "description": "Completed rides only.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar-wait-by-time-of-day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "time_of_day",
+                      "expression": "`time_of_day`"
+                    },
+                    {
+                      "name": "avg(wait_minutes)",
+                      "expression": "AVG(`wait_minutes`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "time_of_day",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "1 Morning peak (5-9)",
+                        "2 Midday (10-15)",
+                        "3 Evening peak (16-19)",
+                        "4 Night (20-23)",
+                        "5 Late night (0-4)"
+                      ]
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "avg(wait_minutes)",
+                  "displayName": "Avg wait (min)",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "time_of_day",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "1 Morning peak (5-9)",
+                        "color": "#D8DEE7"
+                      },
+                      {
+                        "value": "2 Midday (10-15)",
+                        "color": "#A8B2C1"
+                      },
+                      {
+                        "value": "3 Evening peak (16-19)",
+                        "color": "#718096"
+                      },
+                      {
+                        "value": "4 Night (20-23)",
+                        "color": "#2D3748"
+                      },
+                      {
+                        "value": "5 Late night (0-4)",
+                        "color": "#276EF1"
+                      }
+                    ]
+                  },
+                  "legend": {
+                    "hide": true
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Wait time by time of day",
+                "description": "Minutes from booking to pickup.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar-fare-per-mile-by-surge",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "surge_band",
+                      "expression": "`surge_band`"
+                    },
+                    {
+                      "name": "avg(fare_per_mile)",
+                      "expression": "AVG(`fare_per_mile`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "surge_band",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "1 No surge",
+                        "2 Low (1.0-1.5x)",
+                        "3 Medium (1.5-2.0x)",
+                        "4 High (2.0x+)"
+                      ]
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "avg(fare_per_mile)",
+                  "displayName": "Avg fare per mile",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "surge_band",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "1 No surge",
+                        "color": "#D8DEE7"
+                      },
+                      {
+                        "value": "2 Low (1.0-1.5x)",
+                        "color": "#A8B2C1"
+                      },
+                      {
+                        "value": "3 Medium (1.5-2.0x)",
+                        "color": "#718096"
+                      },
+                      {
+                        "value": "4 High (2.0x+)",
+                        "color": "#2D3748"
+                      }
+                    ]
+                  },
+                  "legend": {
+                    "hide": true
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Fare per mile by surge band",
+                "description": "Confirms surge pricing behaves as designed.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "scatter-distance-vs-fare",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "distance_miles",
+                      "expression": "`distance_miles`"
+                    },
+                    {
+                      "name": "total_fare",
+                      "expression": "`total_fare`"
+                    },
+                    {
+                      "name": "surge_band",
+                      "expression": "`surge_band`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "distance_miles",
+                  "displayName": "Distance (mi)",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "total_fare",
+                  "displayName": "Total fare",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "surge_band",
+                  "displayName": "Surge band",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "1 No surge",
+                        "color": "#D8DEE7"
+                      },
+                      {
+                        "value": "2 Low (1.0-1.5x)",
+                        "color": "#A8B2C1"
+                      },
+                      {
+                        "value": "3 Medium (1.5-2.0x)",
+                        "color": "#2D3748"
+                      },
+                      {
+                        "value": "4 High (2.0x+)",
+                        "color": "#276EF1"
+                      }
+                    ]
+                  }
+                }
+              },
+              "mark": {
+                "opacity": 0.6
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Distance versus fare",
+                "description": "Each point is a ride, coloured by surge band. The fan above the baseline is surge pricing.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar-rides-by-distance-band",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "distance_band",
+                      "expression": "`distance_band`"
+                    },
+                    {
+                      "name": "count(ride_id)",
+                      "expression": "COUNT(`ride_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "distance_band",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "1 Under 2 mi",
+                        "2 2-5 mi",
+                        "3 5-10 mi",
+                        "4 10-20 mi",
+                        "5 20+ mi"
+                      ]
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "count(ride_id)",
+                  "displayName": "Rides",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "distance_band",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "1 Under 2 mi",
+                        "color": "#D8DEE7"
+                      },
+                      {
+                        "value": "2 2-5 mi",
+                        "color": "#A8B2C1"
+                      },
+                      {
+                        "value": "3 5-10 mi",
+                        "color": "#718096"
+                      },
+                      {
+                        "value": "4 10-20 mi",
+                        "color": "#2D3748"
+                      },
+                      {
+                        "value": "5 20+ mi",
+                        "color": "#276EF1"
+                      }
+                    ]
+                  },
+                  "legend": {
+                    "hide": true
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Rides by trip distance",
+                "description": "Most demand sits in the short-hop bands.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 12,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "revenue-riders",
+      "displayName": "Revenue & riders",
+      "layout": [
+        {
+          "widget": {
+            "name": "tbl-top-drivers",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "driver_name",
+                      "expression": "`driver_name`"
+                    },
+                    {
+                      "name": "count(ride_id)",
+                      "expression": "COUNT(`ride_id`)"
+                    },
+                    {
+                      "name": "sum(completed_revenue)",
+                      "expression": "SUM(`completed_revenue`)"
+                    },
+                    {
+                      "name": "avg(rating)",
+                      "expression": "AVG(`rating`)"
+                    },
+                    {
+                      "name": "avg(fare_per_mile)",
+                      "expression": "AVG(`fare_per_mile`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`driver_revenue_rank` <= 10"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "SUM(`completed_revenue`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "driver_name",
+                    "displayName": "Driver"
+                  },
+                  {
+                    "fieldName": "count(ride_id)",
+                    "displayName": "Rides",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "sum(completed_revenue)",
+                    "displayName": "Revenue",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    },
+                    "cellType": "data-bar",
+                    "dataBarColor": {
+                      "hex": "#276EF1"
+                    }
+                  },
+                  {
+                    "fieldName": "avg(rating)",
+                    "displayName": "Avg rating",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "avg(fare_per_mile)",
+                    "displayName": "Avg fare per mile",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top drivers",
+                "description": "Drivers with at least 5 completed rides in the selected period.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "combo-payment-and-tipping",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "payment_method_name",
+                      "expression": "`payment_method_name`"
+                    },
+                    {
+                      "name": "count(ride_id)",
+                      "expression": "COUNT(`ride_id`)"
+                    },
+                    {
+                      "name": "avg(is_tipped_pct)",
+                      "expression": "AVG(`is_tipped_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "payment_method_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Debit Card",
+                        "Digital Wallet",
+                        "Cash",
+                        "Credit Card"
+                      ]
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "fields": [
+                      {
+                        "fieldName": "count(ride_id)",
+                        "displayName": "Rides",
+                        "format": {
+                          "type": "number",
+                          "decimalPlaces": {
+                            "type": "exact",
+                            "places": 0
+                          }
+                        }
+                      }
+                    ],
+                    "axis": {
+                      "hideTitle": true
+                    }
+                  },
+                  "secondary": {
+                    "scale": {
+                      "type": "quantitative",
+                      "domain": {
+                        "min": 0,
+                        "max": 100
+                      }
+                    },
+                    "fields": [
+                      {
+                        "fieldName": "avg(is_tipped_pct)",
+                        "displayName": "Tipped %",
+                        "format": {
+                          "type": "number",
+                          "decimalPlaces": {
+                            "type": "exact",
+                            "places": 1
+                          },
+                          "suffix": "%"
+                        }
+                      }
+                    ],
+                    "axis": {
+                      "hideTitle": true
+                    }
+                  }
+                },
+                "color": {
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Rides",
+                        "color": "#276EF1"
+                      },
+                      {
+                        "value": "Tipped %",
+                        "color": "#FF8A00"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Payment method and tipping",
+                "description": "Bars are ride counts; the line is tip rate as a share of subtotal.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar-fare-per-mile-by-vehicle-type",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rides_detail",
+                  "fields": [
+                    {
+                      "name": "vehicle_type",
+                      "expression": "`vehicle_type`"
+                    },
+                    {
+                      "name": "avg(fare_per_mile)",
+                      "expression": "AVG(`fare_per_mile`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "vehicle_type",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "UberXL",
+                        "UberPOOL",
+                        "UberX",
+                        "Uber Black",
+                        "Uber Comfort"
+                      ]
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "avg(fare_per_mile)",
+                  "displayName": "Avg fare per mile",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "avg(fare_per_mile)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#EEF2F8",
+                        "end": "#276EF1"
+                      }
+                    }
+                  },
+                  "legend": {
+                    "hide": true
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Fare per mile by vehicle type",
+                "description": "Average revenue efficiency across the fleet.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F7F8FA",
+        "dark": "#12161C"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#1A1F27"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#1A1F27"
+      },
+      "fontColor": {
+        "light": "#12161C",
+        "dark": "#E8ECF2"
+      },
+      "selectionColor": {
+        "light": "#276EF1",
+        "dark": "#8AB4FF"
+      },
+      "visualizationColors": [
+        "#276EF1",
+        "#FF8A00",
+        "#718096",
+        "#A8B2C1",
+        "#2D3748",
+        "#D8DEE7",
+        "#5A6678"
+      ],
+      "widgetHeaderAlignment": "LEFT",
+      "fontFamily": "Inter",
+      "widgetCornerRadius": 8
+    }
+  }
+}
+
